@@ -16,10 +16,10 @@ const doctorSchema = mongoose.Schema(
       required: true,
     },
     degree: {
-      type: String,
-      required: true,
+      type: [String],
+      required: true
     },
-    specialist: {
+    specialization: {
       type: String,
       required: true,
     },

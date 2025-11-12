@@ -13,8 +13,8 @@ const appointmentSchema = mongoose.Schema(
         name: { type: String, required: true },
         image: { type: String, required: true },
         chamber: { type: String, required: true },
-        degree: { type: String, required: true },
-        specialist: { type: String, required: true },
+        degree: { type: [String], required: true },
+        tag: { type: String, required: true },
         available: { type: String, required: true },
         doctor: {
           type: mongoose.Schema.Types.ObjectId,
@@ -23,9 +23,31 @@ const appointmentSchema = mongoose.Schema(
         },
       },
     ],
-    address: {
+    location: {
       address: { type: String, required: true },
-      contact: { type: String, required: true },
+      contactInfo: {
+        countryCode: {
+          type: String,
+          required: true,
+          validate: {
+            validator: function (v) {
+              return /^\+\d{1,3}$/.test(v);
+            },
+            message: 'Invalid country code format (e.g., +91, +1, +44).',
+          },
+        },
+        phoneNumber: {
+          type: String,
+          required: true,
+          validate: {
+            validator: function (v) {
+              // Ensure exactly 10 digits
+              return /^\d{10}$/.test(v);
+            },
+            message: 'Phone number must be exactly 10 digits.',
+          },
+        },
+      },
     },
     isApproved: {
       type: Boolean,
@@ -34,6 +56,7 @@ const appointmentSchema = mongoose.Schema(
     },
     ApprovedAt: {
       type: Date,
+      default: null
     },
   },
   {

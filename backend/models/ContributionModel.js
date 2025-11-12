@@ -16,10 +16,6 @@ const contributionSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    timestamp: {
-      type: Date,
-      default: Date.now,
-    },
   },
   { timestamps: true }
 );

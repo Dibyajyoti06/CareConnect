@@ -25,7 +25,29 @@ const orderSchema = mongoose.Schema(
       address: { type: String, required: true },
       city: { type: String, required: true },
       postalCode: { type: String, required: true },
-      contact: { type: String, required: true },
+      contactInfo: {
+        countryCode: {
+          type: String,
+          required: true,
+          validate: {
+            validator: function (v) {
+              return /^\+\d{1,3}$/.test(v);
+            },
+            message: 'Invalid country code format (e.g., +91, +1, +44).',
+          },
+        },
+        phoneNumber: {
+          type: String,
+          required: true,
+          validate: {
+            validator: function (v) {
+              // Ensure exactly 10 digits
+              return /^\d{10}$/.test(v);
+            },
+            message: 'Phone number must be exactly 10 digits.',
+          },
+        },
+      },
     },
     paymentMethod: {
       type: String,
@@ -59,6 +81,7 @@ const orderSchema = mongoose.Schema(
     },
     paidAt: {
       type: Date,
+      default: null,
     },
     isDelivered: {
       type: Boolean,
@@ -67,6 +90,7 @@ const orderSchema = mongoose.Schema(
     },
     deliveredAt: {
       type: Date,
+      default: null,
     },
   },
   {

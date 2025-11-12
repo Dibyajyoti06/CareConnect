@@ -11,13 +11,32 @@ const requestSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    dateOfBirth: {
+    patientDateOfBirth: {
       type: Date,
       required: true,
     },
     contactInfo: {
-      type: String,
-      required: true,
+      countryCode: {
+        type: String,
+        required: true,
+        validate: {
+          validator: function (v) {
+            return /^\+\d{1,3}$/.test(v);
+          },
+          message: 'Invalid country code format (e.g., +91, +1, +44).',
+        },
+      },
+      phoneNumber: {
+        type: String,
+        required: true,
+        validate: {
+          validator: function (v) {
+            // Ensure exactly 10 digits
+            return /^\d{10}$/.test(v);
+          },
+          message: 'Phone number must be exactly 10 digits.',
+        },
+      },
     },
     hospitalName: {
       type: String,
@@ -35,6 +54,10 @@ const requestSchema = new mongoose.Schema(
       type: String,
       enum: ['pending', 'approved', 'rejected'],
       default: 'pending',
+    },
+   medicalReports: {
+      type: [String],
+      required: true
     },
     contributions: [
       {
