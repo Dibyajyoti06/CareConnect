@@ -1,31 +1,25 @@
 import nodemailer from 'nodemailer';
 
 const SendEmailUtility = async (EmailTo, EmailText, EmailSubject) => {
-  console.log(EmailTo, EmailText, EmailSubject);
+
   try {
     let transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      secure: false,
+      service: 'gmail',
       auth: {
-        user: 'janiya.cummings56@ethereal.email',
-        pass: 'UdQpECK7BcpkrC1A61',
-      },
-      tls: {
-        rejectUnauthorized: false,
-      },
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      }
     });
 
     let mail = await transporter.sendMail({
-      from: 'janiya.cummings56@ethereal.email',
+      from: process.env.EMAIL_USER,
       to: EmailTo,
       subject: EmailSubject,
-      text: 'Hello world?',
       html: EmailText,
     });
-    console.log('send mail success');
+    console.log('✅ Email sent successfully!');
   } catch (error) {
-    console.log(error);
+    console.error('❌ Error sending email:', error);
   }
 };
 export default SendEmailUtility;
