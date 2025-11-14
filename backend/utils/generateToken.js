@@ -1,17 +1,47 @@
-import jwt from 'jsonwebtoken';
+import jwt from "jsonwebtoken";
 
-const generateToken = (res, userId) => {
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
+// Helper to generate ANY kind of token
+const signToken = ({
+  payload = {},
+  secret = process.env.JWT_SECRET,
+  expiresIn = "1d",
+} = {}) => {
+  if (!secret) throw new Error("JWT secret key is missing");
+  return jwt.sign(payload, secret, { expiresIn });
+};
 
-  // Set JWT as an HTTP-Only cookie
-  res.cookie('jwt', token, {
+// Helper to set cookies safely
+const setCookie = (res, name, token, options = {}) => {
+  const defaultOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV !== 'development', // Use secure cookies in production
-    sameSite: 'strict', // Prevent CSRF attacks
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-  });
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 24 * 60 * 60 * 1000,
+  };
+
+  res.cookie(name, token, { ...defaultOptions, ...options });
+};
+
+// Main token generator
+ const generateToken = ({
+  res,
+  payload = {},
+  secret = process.env.JWT_SECRET,
+  expiresIn = "1d",
+  cookie = false,
+  cookieName = "jwt",
+  cookieOptions = {},
+} = {}) => {
+  const token = signToken({ payload, secret, expiresIn });
+
+  if (cookie) {
+    if(!res) {
+      throw new Error("Response object is required to set cookie");
+    }
+    setCookie(res, cookieName, token, cookieOptions);
+  }
+
+  return token;
 };
 
 export default generateToken;
