@@ -12,6 +12,7 @@ import {
   resetPassword,
   getUserById,
   updateUser,
+  resendVerificationEmail
 } from '../controller/userController.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 
@@ -22,6 +23,7 @@ router.post('/auth', authUser);
 router.post('/logout', logoutUser);
 router.post('/forgetpassword', forgetPassword);
 router.post('/resetpassword/:id/:token', resetPassword);
+router.post('/resendverificationemail', resendVerificationEmail);
 router
   .route('/profile')
   .get(protect, getUserProfile)

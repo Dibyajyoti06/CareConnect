@@ -39,6 +39,7 @@ const setCookie = (res, name, token, options = {}) => {
       throw new Error("Response object is required to set cookie");
     }
     setCookie(res, cookieName, token, cookieOptions);
+    return;
   }
 
   return token;

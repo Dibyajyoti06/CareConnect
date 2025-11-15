@@ -1,119 +1,109 @@
-import dotenv from 'dotenv';
-dotenv.config();
 import asyncHandler from '../middleware/asyncHandler.js';
 import User from '../models/userModel.js';
 import generateToken from '../utils/generateToken.js';
 import SendEmailUtility from '../utils/sendEmailUtility.js';
-import axios from 'axios';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
+import { ApiError } from '../utils/ApiError.js';
+import { ApiResponse } from '../utils/ApiResponse.js';
 
 const authUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  let data = {};
+
+  if ([email, password].some(field => !field || field.trim() === "")) {
+  throw new ApiError(400,'Email and password are required');
+  }
 
   const user = await User.findOne({ email });
-  if (user.isVerified === true) {
-    if (user && (await user.matchPassword(password))) {
-      try {
-        const r = await axios
-          .get('https://api.chatengine.io/users/me/', {
-            headers: {
-              'Project-ID': process.env.CHAT_ENGINE_PROJECT_ID,
-              'User-Name': user.name,
-              'User-Secret': password,
-            },
-          })
-          .then((r) => {
-            let data = { ...r.data };
-            if (data.hasOwnProperty('secret')) {
-              data.secret = password;
-            }
-            return data;
-          });
-        data = r;
-      } catch (e) {
-        console.log(e);
-      }
-      generateToken(res, user._id);
-      res.json({
+  
+  if(!user || !(await user.matchPassword(password))){
+    throw new ApiError(401,'Invalid email or password');
+  }
+
+  if(!user.isVerified){
+    throw new ApiError(401,'Please activate your account');
+  }
+
+      generateToken({res, payload: { id: user._id }, cookie: true, cookieName: 'jwt'});
+      res.json(new ApiResponse(200,
+      {
         _id: user._id,
         name: user.name,
         email: user.email,
-        isAdmin: user.isAdmin,
-        ...data,
-      });
-    } else {
-      res.status(401);
-      throw new Error('Invalid email or password');
-    }
-  } else {
-    res.status(401);
-    throw new Error('Please active your account');
-  }
+        isAdmin: user.isAdmin
+      },
+      'Authentication successful'));
+
 });
 
 const forgetPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  console.log(email);
+
   const user = await User.findOne({ email: email });
 
-  console.log(user);
-
   if (!user) {
-    res.status(401);
-    throw new Error('User Not Found!');
+    throw new ApiError(401,'User Not Found!');
   }
-  const token = jwt.sign({ id: user._id }, 'jwt_secret_key', {
+
+  const token = generateToken({
+    payload: { id: user._id },
+    secret:process.env.JWT_SECRET,
     expiresIn: '1d',
   });
 
   let EmailSubject = 'Reset Password Link';
   let EmailText = `<p> Hi ${user.name} </p>
-  <br> Please <a href="http://localhost:3000/resetpassword/${user._id}/${token}">Click Here</a> To  Reset Your Password </br>`;
+  <br> Please <a href="http://localhost:5000/api/users/resetpassword/${user._id}/${token}">Click Here</a> To  Reset Your Password </br>`;
   let EmailTo = email;
 
-  await SendEmailUtility(EmailTo, EmailText, EmailSubject);
+  const success=await SendEmailUtility(EmailTo, EmailText, EmailSubject);
+  if(success){
+    res.json(new ApiResponse(200,null,'Password reset email sent successfully'));
+  }
 });
 
 const resetPassword = asyncHandler(async (req, res) => {
   const { id, token } = req.params;
   const { password } = req.body;
 
-  console.log(token);
+  if(!password || password.trim() === ''){
+    throw new ApiError(400,'Password is required');
+  }
 
-  console.log(password);
-
-  jwt.verify(token, 'jwt_secret_key', (err, decoded) => {
-    if (err) {
-      console.log(err);
-      return res.json({ Status: 'Error with token' });
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      throw new ApiError(400, 'Reset token has expired. Please request a new one.');
     } else {
-      bcrypt
-        .hash(password, 10)
-        .then((hash) => {
-          User.findByIdAndUpdate({ _id: id }, { password: hash })
-            .then((u) => res.send({ Status: 'Success' }))
-            .catch((err) => res.send({ Status: err }));
-        })
-        .catch((err) => res.send({ Status: err }));
+      throw new ApiError(400, 'Invalid reset token');
     }
-  });
+  }
+
+  if (decoded.id !== id) {
+    throw new ApiError(400, 'Invalid reset token');
+  }
+
+  const user= await User.findById(id);
+  if(!user){
+    throw new ApiError(404,'User not found');
+  } 
+  user.password = password;
+  await user.save();
+  res.json(new ApiResponse(200,null,'Password has been reset successfully'));
 });
 
 const registerUser = asyncHandler(async (req, res) => {
   const { name, email, password } = req.body;
 
-  const username = name;
-  const secret = password;
-  const first_name = name;
-  const last_name = '';
+  if ([name, email, password].some((field) => field?.trim() === "")){
+    throw new ApiError(400,'All fields are required');
+  }
 
   const userExists = await User.findOne({ email });
 
   if (userExists) {
-    res.status(400);
-    throw new Error('User already exists');
+    throw new ApiError(400,'User already exists');
   }
 
   const user = await User.create({
@@ -122,169 +112,167 @@ const registerUser = asyncHandler(async (req, res) => {
     password,
   });
 
-  if (user) {
-    generateToken(res, user._id);
-    try {
-      const r = await axios
-        .post(
-          'https://api.chatengine.io/users/',
-          { username, secret, email, first_name, last_name },
-          { headers: { 'PRIVATE-KEY': process.env.CHAT_ENGINE_PRIVATE_KEY } }
-        )
-        .then((r) => {
-          let data = { ...r.data };
-          if (data.hasOwnProperty('secret')) {
-            data.secret = password;
-          }
-          console.log(data);
-          return data;
-        });
-      console.log('register data:', r);
-    } catch (e) {
-      console.log(e);
-    }
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-    });
-  } else {
-    res.status(400);
-    throw new Error('Invalid user data');
-  }
-  const token = jwt.sign({ id: user._id }, 'jwt_secret_key', {
+  const token = generateToken({
+    payload: { id: user._id },
+    secret: process.env.EMAIL_VERIFY_SECRET,
     expiresIn: '1d',
   });
 
-  user.isToken = token;
-  await user.save();
-
   let EmailSubject = 'Active Account Link';
+  const link = `http://localhost:5000/api/users/active/${token}`;
   let EmailText = `<p> Hi ${user.name} </p>
-  <br> Please <a href="http://localhost:3000/active/${token}">Click Here</a> To  Active Your Account </br>`;
+  <br> Please <a href="${link}">Click Here</a> To  Active Your Account </br>`;
   let EmailTo = email;
 
-  await SendEmailUtility(EmailTo, EmailText, EmailSubject);
+   const success = await SendEmailUtility(EmailTo, EmailText, EmailSubject);
+   if(success){
+    return res.json(new ApiResponse(201,user,'User registered successfully. Please check your email to activate your account.'));
+   }
 });
 
 const activeUser = asyncHandler(async (req, res) => {
   const { token } = req.params;
-  console.log(token);
   try {
-    const user = await User.findOne({ isToken: token });
-    if (user) {
-      user.isVerified = true;
-      user.isToken = '';
-      await user.save();
-      console.log('verified');
+    const decoded = jwt.verify(token, process.env.EMAIL_VERIFY_SECRET);
+    const userId = decoded.id;
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      throw new ApiError(404, "User not found");
     }
+    if (user.isVerified) {
+      return res.json(new ApiResponse(200,user,'Account is already activated'));
+    }
+      user.isVerified = true;
+      await user.save();
+    res.json(new ApiResponse(200,user,'Account activated successfully'));
   } catch (error) {
-    console.log(error);
+    if (error.name === "TokenExpiredError") {
+      throw new ApiError(400, "Verification token has expired. Please request a new one.");
+    } else if (error.name === "JsonWebTokenError") {
+      throw new ApiError(400, "Invalid verification token");
+    } else {
+      // Fallback for other errors (DB errors, unexpected errors)
+      throw new ApiError(500, "Failed to verify user");
+    }
   }
 });
 
-const logoutUser = (req, res) => {
-  res.cookie('jwt', '', {
-    httpOnly: true,
-    expires: new Date(0),
+const resendVerificationEmail = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  if (user.isVerified) {
+    throw new ApiError(400, "User is already verified");
+  }
+
+  const token = generateToken({
+    payload: { id: user._id },
+    secret: process.env.EMAIL_VERIFY_SECRET,
+    expiresIn: '1d',
   });
-  res.status(200).json({ message: 'Logged out successfully' });
+
+  const link = `http://localhost:5000/api/users/active/${token}`;
+  const emailText = `<p>Hi ${user.name},</p><br>Please <a href="${link}">Click Here</a> to verify your account.</br>`;
+  const emailSubject = "Verify Your Account";
+
+  // Send email
+  const success = await SendEmailUtility(user.email, emailText, emailSubject);
+  if(success){
+    res.json(new ApiResponse(200, null, "Verification email resent"));
+  }
+
+});
+
+const logoutUser = (req, res) => {
+  generateToken({res, cookieName:'jwt', cookie:true, cookieOptions: { expires: new Date(0) }});
+  res.json(new ApiResponse(200,null,'Logged out successfully'));
 };
 
 const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = await User.findById(req.user._id).select('_id name email isAdmin');
 
-  if (user) {
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-    });
-  } else {
-    res.status(404);
-    throw new Error('User not found');
+  if(!user){
+    throw new ApiError(404,'User not found');
   }
+  res.json(new ApiResponse(200,user,'User profile fetched successfully'));
 });
 
 const updateUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
+  if(!user){
+    throw new ApiError(404,'User not found');
+  }
+  if (req.body.name?.trim()) user.name = req.body.name.trim();
+  if (req.body.email?.trim()) user.email = req.body.email.trim();
+  if (req.body.password?.trim()) user.password = req.body.password;
 
-  if (user) {
-    user.name = req.body.name || user.name;
-    user.email = req.body.email || user.email;
+  const updatedUser = await user.save();
 
-    if (req.body.password) {
-      user.password = req.body.password;
-    }
-
-    const updatedUser = await user.save();
-
-    res.json({
+  res.json(new ApiResponse(200,
+    {
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
       isAdmin: updatedUser.isAdmin,
-    });
-  } else {
-    res.status(404);
-    throw new Error('User not found');
-  }
+    },
+    'User profile updated successfully'));  
 });
 
 const getUsers = asyncHandler(async (req, res) => {
-  const users = await User.find({});
-  res.json(users);
+  const users = await User.find({}).select('-password').sort({ createdAt: -1 });
+  res.json(new ApiResponse(200, users, 'Users fetched successfully'));
 });
 
 const deleteUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
+  if(!user){
+    throw new ApiError(404,'User not found');
+  }
 
-  if (user) {
     if (user.isAdmin) {
       res.status(400);
-      throw new Error('Can not delete admin user');
+      throw new ApiError(400, 'Can not delete admin user');
     }
-    await User.deleteOne({ _id: user._id });
-    res.json({ message: 'User removed' });
-  } else {
-    res.status(404);
-    throw new Error('User not found');
-  }
+    await User.findByIdAndDelete(user._id);
+    res.json(new ApiResponse(200, null, 'User removed'));
+  
 });
 
 const getUserById = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id).select('-password');
-
-  if (user) {
-    res.json(user);
-  } else {
-    res.status(404);
-    throw new Error('User not found');
+  if(!user){
+    throw new ApiError(404,'User not found');
   }
+  res.json(new ApiResponse(200, user, 'User fetched successfully'));
 });
 
 const updateUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
 
-  if (user) {
-    user.name = req.body.name || user.name;
-    user.email = req.body.email || user.email;
-    user.isAdmin = Boolean(req.body.isAdmin);
+  if(!user){
+    throw new ApiError(404,'User not found');
+  }
 
-    const updatedUser = await user.save();
+  if (req.body.name?.trim()) user.name = req.body.name.trim();
+  if (req.body.email?.trim()) user.email = req.body.email.trim();
+  if (req.body.isAdmin !== undefined) user.isAdmin = Boolean(req.body.isAdmin);
 
-    res.json({
+
+  const updatedUser = await user.save();
+
+  res.json(new ApiResponse(200,
+    {
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
       isAdmin: updatedUser.isAdmin,
-    });
-  } else {
-    res.status(404);
-    throw new Error('User not found');
-  }
+    },
+    'User updated successfully'));
+
 });
 
 export {
@@ -300,4 +288,5 @@ export {
   deleteUser,
   getUserById,
   updateUser,
+  resendVerificationEmail
 };

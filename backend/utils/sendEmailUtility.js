@@ -18,8 +18,10 @@ const SendEmailUtility = async (EmailTo, EmailText, EmailSubject) => {
       html: EmailText,
     });
     console.log('✅ Email sent successfully!');
+    return true;
   } catch (error) {
     console.error('❌ Error sending email:', error);
+    return false;
   }
 };
 export default SendEmailUtility;

@@ -1,4 +1,4 @@
-import { ApiError } from "../utils/apiError.js";
+import { ApiError } from "../utils/ApiError.js";
 
 const notFound = (req) => {
   throw new ApiError(404, `Not Found - ${req.originalUrl}`);
