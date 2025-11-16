@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const reviewSchema = mongoose.Schema(
   {
-    name: { 
+    reviewerName: { 
       type: String, 
       required: true 
     },
@@ -16,7 +16,7 @@ const reviewSchema = mongoose.Schema(
       type: String, 
       required: true 
     },
-    user: {
+    reviewerId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
       ref: 'User',
@@ -29,7 +29,7 @@ const reviewSchema = mongoose.Schema(
 
 const medSchema = mongoose.Schema(
   {
-    user: {
+    uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
       ref: 'User',

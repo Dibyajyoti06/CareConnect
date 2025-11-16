@@ -41,15 +41,12 @@ const createDoctor = asyncHandler(async (req, res) => {
   const degreeArray = Array.isArray(degree) ? degree : JSON.parse(degree || '[]');
   const tagArray = Array.isArray(tag) ? tag : JSON.parse(tag || '[]');
   
-  if(Object.values({ name, degreeArray, specialization, chamber, tagArray, available }).some(isInvalid)) {
+  if(Object.values({ name, degreeArray, specialization, chamber, tagArray, available }).some(isInvalid) || 
+  !req.file?.path) {
     throw new ApiError(400, 'All fields are required and must be valid');
   }
 
-  const doctorImagePath = req.file?.path;
-
-  if(!doctorImagePath) {
-    throw new ApiError(400, 'Doctor image is required');
-  }
+  const doctorImagePath = req.file.path;
 
   const doctorImage = await uploadonCloudinary(doctorImagePath);
 
@@ -99,19 +96,15 @@ const updateDoctor = asyncHandler(async (req, res) => {
   if(!doctor) {
     throw new ApiError(404, 'Doctor Not Found');
   }
-
   
   const fields = { name, degree, specialization, chamber, tag, available };
-  
   const hasUploadedImage = !!req.file?.path?.length;
   
-  const allEmpty = Object.values(fields).every(v => isInvalid(v)) && !hasUploadedImage;
-  
-  if (allEmpty) {
+  if(Object.values(fields).every(v => isInvalid(v)) && !hasUploadedImage) {
     throw new ApiError(400, "At least one field is required to update");
   }
   
-  if(req.file?.path) {
+  if(hasUploadedImage) {
     const doctorImagePath = req.file.path;
 
     if(doctorImagePath) {
