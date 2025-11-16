@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const doctorSchema = mongoose.Schema(
   {
-    user: {
+    createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
       ref: "User",
@@ -17,7 +17,11 @@ const doctorSchema = mongoose.Schema(
     },
     degree: {
       type: [String],
-      required: true
+      required: true,
+      validate: {
+        validator: v => Array.isArray(v) && v.length > 0,
+        message: "Degree must be a non-empty array"
+      }
     },
     specialization: {
       type: String,
@@ -28,8 +32,13 @@ const doctorSchema = mongoose.Schema(
       required: true,
     },
     tag: {
-      type: String,
+      type: [String],
       required: true,
+      validate: {
+        validator: v => Array.isArray(v) && v.length > 0,
+        message: "tag must be a non-empty array"
+      }
+
     },
     available: {
       type: String,

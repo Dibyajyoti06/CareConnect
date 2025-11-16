@@ -9,12 +9,13 @@ import {
   updateDoctor,
 } from "../controller/doctorController.js";
 import { admin, protect } from "../middleware/authMiddleware.js";
+import upload from "../middleware/multerMiddleware.js";
 
-router.route("/").get(getDoctors).post(protect, admin, createDoctor);
+router.route("/").get(getDoctors).post(protect, admin, upload.single('doctorImage'),createDoctor);
 router
   .route("/:id")
   .get(getDoctorById)
-  .put(protect, admin, updateDoctor)
+  .put(protect, admin, upload.single('doctorImage'), updateDoctor)
   .delete(protect, admin, deleteDoctor);
 
 export default router;
