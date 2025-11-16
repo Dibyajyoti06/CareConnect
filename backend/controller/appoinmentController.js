@@ -1,79 +1,67 @@
 import asyncHandler from '../middleware/asyncHandler.js';
 import Appointment from '../models/appointmentModel.js';
+import { ApiError } from '../utils/ApiError.js';
+import { ApiResponse } from '../utils/ApiResponse.js';
 
 const addAppointmentItems = asyncHandler(async (req, res) => {
-  const { appointmentItems, address, time } = req.body;
 
-  const desiredTime = new Date(time);
+  const { appointmentItems, location, time } = req.body;
 
-  desiredTime.setSeconds(0, 0);
+  const isAppointmentItemsValid = (
+  appointmentItems &&
+  Array.isArray(appointmentItems) &&
+  appointmentItems.length > 0 &&
+  appointmentItems.every(item => item && typeof item === 'object')
+  );
+  const isLocationValid =(
+    typeof location?.address === "string" &&
+    location.address.trim().length > 0 &&
 
-  console.log(appointmentItems);
+    typeof location?.contactInfo?.countryCode === "string" &&
+    location.contactInfo.countryCode.trim().length > 0 &&
 
-  let Drname = '';
+    typeof location?.contactInfo?.phoneNumber === "string" &&
+    location.contactInfo.phoneNumber.trim().length > 0);
 
-  appointmentItems.map((x) => {
-    Drname = x.name;
-  });
+  const isTimeValid = (time && !isNaN(new Date(time).getTime()));
 
-  const isDoctorSame = await Appointment.find({
-    'appointmentItems.name': Drname,
-  });
-  console.log(isDoctorSame.length);
-  if (isDoctorSame.length > 0) {
-    const isSlotTaken = await Appointment.findOne({ time: desiredTime });
-    if (isSlotTaken) {
-      res.status(404);
-      throw new Error('Time Slot Is Already Booked');
-    } else {
-      if (appointmentItems && appointmentItems.length === 0) {
-        res.status(400);
-        throw new Error('No appointment items');
-      } else {
-        const appointment = new Appointment({
-          appointmentItems: appointmentItems.map((x) => ({
-            ...x,
-            doctor: x._id,
-            _id: undefined,
-          })),
-          time: desiredTime,
-          user: req.user._id,
-          address,
-        });
-
-        const createdAppointment = await appointment.save();
-
-        res.status(201).json(createdAppointment);
-      }
-    }
-  } else {
-    if (appointmentItems && appointmentItems.length === 0) {
-      res.status(400);
-      throw new Error('No appointment items');
-    } else {
-      const appointment = new Appointment({
-        appointmentItems: appointmentItems.map((x) => ({
-          ...x,
-          doctor: x._id,
-          _id: undefined,
-        })),
-        time: desiredTime,
-        user: req.user._id,
-        address,
-      });
-
-      const createdAppointment = await appointment.save();
-
-      res.status(201).json(createdAppointment);
-    }
+  if (!isAppointmentItemsValid || !isLocationValid || !isTimeValid) {
+    throw new ApiError(400, 'All fields are required and must be valid');
   }
 
-  res.send('add appointment');
+  const desiredTime = new Date(time);
+  desiredTime.setSeconds(0, 0);
+  const slotStart = new Date(desiredTime);
+  const slotEnd = new Date(desiredTime);
+  slotEnd.setMinutes(slotEnd.getMinutes() + 30);
+
+  const DoctorId = appointmentItems[0].doctor;
+  const isDoctorSame = await Appointment.find({
+    'appointmentItems.doctor': DoctorId,
+  });
+
+  if (isDoctorSame.length > 0) {
+    const isSlotTaken = await Appointment.findOne({ time: { $gte: slotStart, $lt: slotEnd }});
+
+    if (isSlotTaken) {
+      throw new ApiError(404, 'Time Slot Is Already Booked');
+    } 
+  } 
+    
+    const appointment = new Appointment({
+      appointmentItems,
+      time: desiredTime,
+      user: req.user._id,
+      location,
+    });
+
+    const createdAppointment = await appointment.save();
+    res.json(new ApiResponse(201, createdAppointment, 'Appointment created successfully'));
 });
 
 const getMyAppointments = asyncHandler(async (req, res) => {
   const appointments = await Appointment.find({ user: req.user._id });
-  res.status(200).json(appointments);
+  res.json(new ApiResponse(200, appointments, 'Appointments fetched successfully'));
 });
 
 const getAppointmentById = asyncHandler(async (req, res) => {
@@ -82,33 +70,39 @@ const getAppointmentById = asyncHandler(async (req, res) => {
     'name email'
   );
 
-  if (appointment) {
-    res.status(200).json(appointment);
-  } else {
-    res.status(404);
-    throw new Error('Appointment not found');
+  if(!appointment) {
+    throw new ApiError(404, 'Appointment not found');
   }
+  res.status(200).json(new ApiResponse(200, appointment, 'Appointment fetched successfully'));
+ 
 });
 
 const updateAppointmentToApproved = asyncHandler(async (req, res) => {
   const appointment = await Appointment.findById(req.params.id);
 
-  if (appointment) {
-    appointment.isApproved = true;
-    appointment.ApprovedAt = Date.now();
-
-    const updatedAppointment = await appointment.save();
-
-    res.json(updatedAppointment);
-  } else {
-    res.status(404);
-    throw new Error('Order not found');
+  if(!appointment) {
+    throw new ApiError(404, 'Appointment not found');
   }
+
+  if (appointment.isApproved) {
+    throw new ApiError(400, 'Appointment is already approved');
+  }
+
+  appointment.isApproved = true;
+  appointment.ApprovedAt = Date.now();
+
+  const updatedAppointment = await appointment.save();
+
+  res.json(new ApiResponse(200, updatedAppointment, 'Appointment approved successfully'));
+  
 });
 
 const getAppointments = asyncHandler(async (req, res) => {
-  const appointments = await Appointment.find({}).populate('user', 'id name');
-  res.json(appointments);
+  const appointments = await Appointment.find({})
+  .sort({ createdAt: -1 })
+  .populate('user', 'id name');
+  
+  res.json(new ApiResponse(200, appointments, 'Appointments fetched successfully'));
 });
 
 export {

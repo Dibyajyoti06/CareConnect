@@ -7,9 +7,6 @@ import uploadonCloudinary from '../utils/cloudinary.js';
 
 const getMedicines = asyncHandler(async (req, res) => {
   const meds = await Medicine.find({}).sort({ createdAt: -1 });
-  if(!meds) {
-    throw new ApiError(404, 'Medicines Not Found');
-  }
   res.json(new ApiResponse(200, meds, 'Medicines fetched successfully'));
 });
 
