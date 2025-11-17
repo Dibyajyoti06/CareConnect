@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const bloodSchema = mongoose.Schema(
   {
-    user: {
+    createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
       ref: "User",
@@ -24,7 +24,7 @@ const bloodSchema = mongoose.Schema(
       required: true,
     },
     lastdonate: {
-      type: String,
+      type: Date,
       required: true,
     },
     address: {

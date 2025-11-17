@@ -8,13 +8,14 @@ import {
   updateBlood,
   deleteBlood,
 } from "../controller/bloodController.js";
+import upload from "../middleware/multerMiddleware.js";
 import { admin, protect } from "../middleware/authMiddleware.js";
 
-router.route("/").get(getBloods).post(protect, admin, createBlood);
+router.route("/").get(getBloods).post(protect, admin, upload.single('bloodImage'), createBlood);
 router
   .route("/:id")
   .get(getBloodById)
-  .put(protect, admin, updateBlood)
+  .put(protect, admin, upload.single('bloodImage'), updateBlood)
   .delete(protect, admin, deleteBlood);
 
 export default router;
