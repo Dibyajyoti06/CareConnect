@@ -46,6 +46,17 @@ const createDoctor = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'All fields are required and must be valid');
   }
 
+  const exists = await Doctor.findOne({
+  name,
+  specialization,
+  chamber
+  });
+  
+  if (exists) {
+    throw new ApiError(400, "Doctor already exists");
+  }
+
+
   const doctorImagePath = req.file.path;
 
   const doctorImage = await uploadonCloudinary(doctorImagePath);
@@ -86,7 +97,7 @@ const updateDoctor = asyncHandler(async (req, res) => {
     if(typeof value === "string") {
       return value.trim() === "";
     }
-    return true;
+    return false;
   };
 
   const { name, degree, specialization, chamber, tag, available } = req.body;

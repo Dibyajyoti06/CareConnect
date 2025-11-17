@@ -29,6 +29,14 @@ const createMedicine = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'All fields are required');
   }
 
+  const exists = await Medicine.findOne({ 
+    name: { $regex: `^${name.trim()}$`, $options: "i" },
+    brand: { $regex: `^${brand.trim()}$`, $options: "i" }
+  });
+  if (exists) {
+    throw new ApiError(400, 'Medicine already exists');
+  }
+
   const medicineImagePath = req.file.path;
 
   const medImage = await uploadonCloudinary(medicineImagePath);
