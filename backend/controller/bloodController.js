@@ -23,36 +23,55 @@ const getBloods = asyncHandler(async (req, res) => {
 const getBloodById = asyncHandler(async (req, res) => {
   const blood = await Blood.findById(req.params.id);
 
-  if(!blood) {
+  if (!blood) {
     throw new ApiError(404, 'Blood not found');
   }
   res.json(new ApiResponse(200, blood, 'Blood fetched successfully'));
 });
 
 const createBlood = asyncHandler(async (req, res) => {
-
   const { name, group, lastdonate, age, address, contactInfo } = req.body;
 
-  const checkStringFields = [name, group, address].some(field => typeof field !== 'string' || field.trim() === '');
-  const checkNumberFields = [age].some(field => field === undefined || field === null || isNaN(field) || Number(field) <= 0);
-  const checkDateFields = !lastdonate ||isNaN(new Date(lastdonate).getTime());
-  const contactInfoFields = !contactInfo || typeof contactInfo.countryCode !== 'string' || contactInfo.countryCode.trim() === '' || typeof contactInfo.phoneNumber !== 'string' || contactInfo.phoneNumber.trim()==='';
-  
-  if (checkStringFields || checkNumberFields || checkDateFields || contactInfoFields || !req.file?.path) {
+  const checkStringFields = [name, group, address].some(
+    (field) => typeof field !== 'string' || field.trim() === ''
+  );
+  const checkNumberFields = [age].some(
+    (field) =>
+      field === undefined ||
+      field === null ||
+      isNaN(field) ||
+      Number(field) <= 0
+  );
+  const checkDateFields = !lastdonate || isNaN(new Date(lastdonate).getTime());
+  const contactInfoFields =
+    !contactInfo ||
+    typeof contactInfo.countryCode !== 'string' ||
+    contactInfo.countryCode.trim() === '' ||
+    typeof contactInfo.phoneNumber !== 'string' ||
+    contactInfo.phoneNumber.trim() === '';
+
+  if (
+    checkStringFields ||
+    checkNumberFields ||
+    checkDateFields ||
+    contactInfoFields ||
+    !req.file?.path
+  ) {
     throw new ApiError(400, 'All fields are required and must be valid');
   }
 
   const exists = await Blood.findOne({
-  "contactInfo.phoneNumber": contactInfo.phoneNumber.trim()});
+    'contactInfo.phoneNumber': contactInfo.phoneNumber.trim(),
+  });
 
   if (exists) {
-    throw new ApiError(400, "A donor with this phone number already exists");
+    throw new ApiError(400, 'A donor with this phone number already exists');
   }
 
   const bloodImagePath = req.file.path;
   const bloodImage = await uploadonCloudinary(bloodImagePath);
-  if(!bloodImage?.url) {
-  throw new ApiError(500, 'Blood image upload failed');
+  if (!bloodImage?.url) {
+    throw new ApiError(500, 'Blood image upload failed');
   }
 
   const blood = new Blood({
@@ -71,34 +90,35 @@ const createBlood = asyncHandler(async (req, res) => {
 });
 
 const updateBlood = asyncHandler(async (req, res) => {
-  const { name, image, group, lastdonate, age, address, contactInfo } = req.body;
+  const { name, image, group, lastdonate, age, address, contactInfo } =
+    req.body;
 
   const blood = await Blood.findById(req.params.id);
-  if(!blood) {
+  if (!blood) {
     throw new ApiError(404, 'Blood not found');
   }
   const hasUploadedImage = !!req.file?.path;
 
   const hasAtLeastOneField =
-  name !== undefined ||
-  group !== undefined ||
-  lastdonate !== undefined ||
-  age !== undefined ||
-  address !== undefined ||
-  contactInfo !== undefined ||
-  hasUploadedImage;
+    name !== undefined ||
+    group !== undefined ||
+    lastdonate !== undefined ||
+    age !== undefined ||
+    address !== undefined ||
+    contactInfo !== undefined ||
+    hasUploadedImage;
 
   if (!hasAtLeastOneField) {
-    throw new ApiError(400, "At least one field is required to update");
+    throw new ApiError(400, 'At least one field is required to update');
   }
 
-  if(hasUploadedImage) {
+  if (hasUploadedImage) {
     const bloodImagePath = req.file.path;
 
-    if(bloodImagePath) {
+    if (bloodImagePath) {
       const bloodImage = await uploadonCloudinary(bloodImagePath);
 
-      if(!bloodImage?.url) {
+      if (!bloodImage?.url) {
         throw new ApiError(500, 'Blood image upload failed');
       }
       blood.image = bloodImage.url;
@@ -108,17 +128,16 @@ const updateBlood = asyncHandler(async (req, res) => {
   const fields = { name, group, lastdonate, age, address, contactInfo };
 
   const validators = {
-  name: v => typeof v === "string" && v.trim() !== "",
-  group: v => typeof v === "string" && v.trim() !== "",
-  address: v => typeof v === "string" && v.trim() !== "",
-  age: v => !isNaN(v) && Number(v) > 0,
-  lastdonate: v => !isNaN(new Date(v).getTime()),
-  contactInfo: v =>
-    v &&
-    /^\+\d{1,3}$/.test(v.countryCode?.trim()) &&
-    /^\d{10}$/.test(v.phoneNumber?.trim())
-};
-
+    name: (v) => typeof v === 'string' && v.trim() !== '',
+    group: (v) => typeof v === 'string' && v.trim() !== '',
+    address: (v) => typeof v === 'string' && v.trim() !== '',
+    age: (v) => !isNaN(v) && Number(v) > 0,
+    lastdonate: (v) => !isNaN(new Date(v).getTime()),
+    contactInfo: (v) =>
+      v &&
+      /^\+\d{1,3}$/.test(v.countryCode?.trim()) &&
+      /^\d{10}$/.test(v.phoneNumber?.trim()),
+  };
 
   Object.entries(fields).forEach(([key, value]) => {
     if (value === undefined) return; // skip un-updated fields
@@ -140,11 +159,11 @@ const updateBlood = asyncHandler(async (req, res) => {
 
 const deleteBlood = asyncHandler(async (req, res) => {
   const blood = await Blood.findById(req.params.id);
-  if(!blood) {
+  if (!blood) {
     throw new ApiError(404, 'Blood not found');
   }
   await Blood.deleteOne({ _id: blood._id });
-  res.json(new ApiResponse(200, null, 'Donor removed successfully')); 
+  res.json(new ApiResponse(200, null, 'Donor removed successfully'));
 });
 
 export { getBloods, getBloodById, createBlood, updateBlood, deleteBlood };

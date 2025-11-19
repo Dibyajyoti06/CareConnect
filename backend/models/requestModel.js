@@ -1,18 +1,18 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
 const requestSchema = mongoose.Schema(
   {
-    user: {
+    requestBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      ref: "User",
+      ref: 'User',
     },
     requestItems: [
       {
-        name: { type: String },
-        age: { type: String },
+        patientName: { type: String },
+        patientAge: { type: String },
         date: { type: Date },
-        group: { type: String },
+        bloodGroup: { type: String },
         contactInfo: {
           countryCode: {
             type: String,
@@ -38,28 +38,28 @@ const requestSchema = mongoose.Schema(
         },
         unit: { type: Number },
         hospital: { type: String },
+        assignedDonor: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Blood',
+          default: null,
+        },
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+          default: 'pending',
+        },
+        approvedAt: {
+          type: Date,
+          default: null,
+        },
       },
     ],
-    availableDonor: [
-      {
-        number: { type: String },
-      }
-    ],
-    status: {
-      type: String,
-      enum: ["pending", "approved", "rejected"],
-      default: "pending",
-    },
-    approvedAt: {
-      type: Date,
-      default: null,
-    },
   },
   {
     timestamps: true,
   }
 );
 
-const RequestBlood = mongoose.model("RequestBlood", requestSchema);
+const RequestBlood = mongoose.model('RequestBlood', requestSchema);
 
 export default RequestBlood;
