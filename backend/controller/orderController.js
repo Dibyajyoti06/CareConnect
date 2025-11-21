@@ -3,127 +3,172 @@ import Medicine from '../models/medModel.js';
 import Order from '../models/orderModel.js';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
+import { ApiError } from '../utils/ApiError.js';
+import { ApiResponse } from '../utils/ApiResponse.js';
 
 const addOrderItems = asyncHandler(async (req, res) => {
-  const {
-    orderItems,
+  const { orderItems, shippingAddress, paymentMethod } = req.body;
+
+  const isEmptyString = (value) =>
+    value == null || (typeof value === 'string' && value.trim() === '');
+
+  if (
+    isEmptyString(paymentMethod) ||
+    !shippingAddress ||
+    !orderItems ||
+    orderItems.length === 0
+  ) {
+    throw new ApiError(400, 'All fields are required.');
+  }
+
+  const hasInvalid = orderItems.some(
+    (item) =>
+      isEmptyString(item.name) ||
+      item.qty == null ||
+      item.qty <= 0 ||
+      isEmptyString(item.image) ||
+      item.price == null ||
+      item.price < 0 ||
+      !item.med
+  );
+
+  if (hasInvalid) {
+    throw new ApiError(400, 'Invalid fields in order items.');
+  }
+
+  const fields = [
+    shippingAddress.name,
+    shippingAddress.address,
+    shippingAddress.city,
+    shippingAddress.postalCode,
+    shippingAddress.contactInfo?.countryCode,
+    shippingAddress.contactInfo?.phoneNumber,
+  ];
+  if (fields.some((field) => isEmptyString(field))) {
+    throw new ApiError(400, 'All shipping address fields must be filled.');
+  }
+
+  const processedItems = orderItems.map((x) => ({
+    ...x,
+    med: x.med,
+    subTotal: x.qty * x.price,
+  }));
+  // Calculate itemsPrice (sum of subtotals)
+  const itemsPrice = processedItems.reduce(
+    (acc, item) => acc + item.subTotal,
+    0
+  );
+
+  // Calculate tax & shipping (if needed)
+  const taxPrice = itemsPrice * 0.05; // 5% GST example
+  const shippingPrice = itemsPrice > 500 ? 0 : 50;
+
+  // Final totalPrice
+  const totalPrice = itemsPrice + taxPrice + shippingPrice;
+
+  const order = new Order({
+    orderItems: processedItems,
+    orderBy: req.user._id,
     shippingAddress,
     paymentMethod,
     itemsPrice,
+    taxPrice,
     shippingPrice,
     totalPrice,
-  } = req.body;
-
-  let medId = '';
-  let stock = 0;
-
-  orderItems.map((x) => {
-    medId = x._id;
-    stock = x.countInStock - x.qty;
   });
+  const createdOrder = await order.save();
 
-  console.log(medId);
-  console.log(stock);
-
-  const medicine = await Medicine.findById(medId);
-
-  if (medicine) {
-    medicine.countInStock = stock;
-    medicine.save();
-  }
-
-  if (orderItems && orderItems.length === 0) {
-    res.status(400);
-    throw new Error('No order items');
-  } else {
-    const order = new Order({
-      orderItems: orderItems.map((x) => ({
-        ...x,
-        med: x._id,
-        _id: undefined,
-      })),
-      user: req.user._id,
-      shippingAddress,
-      paymentMethod,
-      itemsPrice,
-      shippingPrice,
-      totalPrice,
-    });
-
-    console.log(order);
-    console.log(medicine);
-
-    const createdOrder = await order.save();
-
-    res.status(201).json(createdOrder);
-  }
+  res.json(new ApiResponse(201, createdOrder, 'Order Created Successfully..'));
 });
 
 const getMyOrders = asyncHandler(async (req, res) => {
-  const orders = await Order.find({ user: req.user._id });
-  res.status(200).json(orders);
+  const orders = await Order.find({ orderBy: req.user._id });
+  res.json(new ApiResponse(200, orders, 'Orders fetched successfully'));
 });
 
 const getOrderById = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id).populate(
-    'user',
+    'orderBy',
     'name email'
   );
 
-  if (order) {
-    res.json(order);
-  } else {
-    res.status(404);
-    throw new Error('Order not found');
+  if (!order) {
+    throw new ApiError(404, 'Order not found');
   }
+  res.json(new ApiResponse(200, order, 'Order fetched successfully'));
 });
 
-const updateOrderToPaid = asyncHandler(async (req, res) => {
-  const order = await Order.findById(req.params.id);
+const updateOrderToPaid = async (order, paymentData) => {
+  order.isPaid = true;
+  order.paidAt = Date.now();
+  order.paymentResult = paymentData;
+  // order.paymentResult = {
+  //   id: req.body.id,
+  //   status: req.body.status,
+  //   update_time: req.body.update_time,
+  //   email_address: req.body.payer.email_address,
+  // };
 
-  if (order) {
-    order.isPaid = true;
-    order.paidAt = Date.now();
-    order.paymentResult = {
-      id: req.body.id,
-      status: req.body.status,
-      update_time: req.body.update_time,
-      email_address: req.body.payer.email_address,
-    };
-
-    const updatedOrder = await order.save();
-
-    res.json(updatedOrder);
-  } else {
-    res.status(404);
-    throw new Error('Order not found');
-  }
-});
+  const updatedOrder = await order.save();
+  res.json(200, updatedOrder, 'Order paid Successfully.');
+};
 
 const updateOrderToDelivered = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id);
 
-  if (order) {
-    order.isDelivered = true;
-    order.deliveredAt = Date.now();
-
-    const updatedOrder = await order.save();
-
-    res.json(updatedOrder);
-  } else {
-    res.status(404);
-    throw new Error('Order not found');
+  if (!order) {
+    throw new ApiError(404, 'Order not found');
   }
+
+  if (order.isDelivered) {
+    throw new ApiError(400, 'Order is already delivered');
+  }
+
+  order.isDelivered = true;
+  order.deliveredAt = new Date();
+  order.orderStatus = 'Delivered';
+
+  const updatedOrder = await order.save();
+
+  res.json(
+    new ApiResponse(200, updatedOrder, 'Delivered order update successfully')
+  );
+});
+
+const cancelOrder = asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order) {
+    throw new ApiError(400, 'Order not found.');
+  }
+  if (order.orderStatus === 'Delivered') {
+    throw new ApiError(400, 'Delivered orders cannot be cancelled.');
+  }
+
+  if (order.orderStatus === 'Cancelled') {
+    throw new ApiError(400, 'Order is already cancelled.');
+  }
+
+  order.orderStatus = 'Cancelled';
+  await order.save();
+
+  res.json(200, order, 'Order Cancelled Successfully.');
 });
 
 const getOrders = asyncHandler(async (req, res) => {
-  const orders = await Order.find({}).populate('user', 'id name');
-  res.json(orders);
+  const orders = await Order.find({})
+    .sort({ createdAt: -1 })
+    .populate('orderBy', 'id name email');
+
+  res.json(new ApiResponse(200, orders, 'Orders fetched successfully'));
 });
 
 const MakePayment = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id);
+  if (!order) {
+    throw new ApiError(404, 'Order not Found.');
+  }
   const id = req.params.id;
+
   const formData = {
     cus_name: order.shippingAddress.name,
     cus_email: 'test@gmail.com',
@@ -178,10 +223,25 @@ const callback = asyncHandler(async (req, res) => {
   const order = await Order.findById(opt_a);
 
   if (order && pay_status === 'Successful') {
-    order.isPaid = true;
-    order.paidAt = Date.now();
+    // order.isPaid = true;
+    // order.paidAt = Date.now();
 
-    await order.save();
+    // await order.save();
+    for (const item of order.orderItems) {
+      const medicine = await Medicine.findById(item.med);
+      if (!medicine) {
+        throw new ApiError(404, 'Medicine not Found.');
+      }
+      medicine.countInStock -= item.qty;
+      await medicine.save();
+    }
+
+    updateOrderToPaid(order, {
+      id: req.body.id,
+      status: req.body.status,
+      update_time: req.body.update_time,
+      email_address: req.body.payer.email_address,
+    });
   } else {
     res.status(404);
     throw new Error('Order not found');
@@ -202,4 +262,5 @@ export {
   updateOrderToPaid,
   updateOrderToDelivered,
   getOrders,
+  cancelOrder,
 };
