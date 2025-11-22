@@ -4,9 +4,8 @@ import {
   addOrderItems,
   getMyOrders,
   getOrderById,
-  updateOrderToPaid,
   MakePayment,
-  callback,
+  razorpayWebhook,
   updateOrderToDelivered,
   getOrders,
   cancelOrder,
@@ -18,8 +17,9 @@ router.route('/mine').get(protect, getMyOrders);
 router.route('/:id').get(protect, getOrderById);
 router.route('/:id/cancel').post(protect, cancelOrder);
 router.route('/:id/payment').post(protect, MakePayment);
-router.route('/callback').post(callback);
-router.route('/:id/pay').put(protect, updateOrderToPaid);
+router
+  .route('/webhook')
+  .post(bodyParser.raw({ type: 'application/json' }), razorpayWebhook);
 router.route('/:id/deliver').put(protect, admin, updateOrderToDelivered);
 
 export default router;

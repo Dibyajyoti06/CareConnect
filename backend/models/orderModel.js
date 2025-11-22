@@ -60,10 +60,18 @@ const orderSchema = mongoose.Schema(
       enum: ['Cash', 'Card', 'UPI', 'NetBanking'],
     },
     paymentResult: {
-      id: { type: String },
+      paymentOrderId: { type: String },
+      PaymentId: { type: String },
+      isPaid: {
+        type: Boolean,
+        required: true,
+        default: false,
+      },
+      paidAt: {
+        type: Date,
+        default: null,
+      },
       status: { type: String },
-      update_time: { type: String },
-      email_address: { type: String },
     },
     shippingPrice: {
       type: Number,
@@ -89,15 +97,6 @@ const orderSchema = mongoose.Schema(
       type: String,
       enum: ['Pending', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'],
       default: 'Pending',
-    },
-    isPaid: {
-      type: Boolean,
-      required: true,
-      default: false,
-    },
-    paidAt: {
-      type: Date,
-      default: null,
     },
     isDelivered: {
       type: Boolean,

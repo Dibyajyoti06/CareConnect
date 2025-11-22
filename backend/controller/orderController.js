@@ -1,10 +1,9 @@
 import asyncHandler from '../middleware/asyncHandler.js';
 import Medicine from '../models/medModel.js';
 import Order from '../models/orderModel.js';
-import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
+import razorpay from '../utils/razorpay.js';
 
 const addOrderItems = asyncHandler(async (req, res) => {
   const { orderItems, shippingAddress, paymentMethod } = req.body;
@@ -98,21 +97,6 @@ const getOrderById = asyncHandler(async (req, res) => {
   res.json(new ApiResponse(200, order, 'Order fetched successfully'));
 });
 
-const updateOrderToPaid = async (order, paymentData) => {
-  order.isPaid = true;
-  order.paidAt = Date.now();
-  order.paymentResult = paymentData;
-  // order.paymentResult = {
-  //   id: req.body.id,
-  //   status: req.body.status,
-  //   update_time: req.body.update_time,
-  //   email_address: req.body.payer.email_address,
-  // };
-
-  const updatedOrder = await order.save();
-  res.json(200, updatedOrder, 'Order paid Successfully.');
-};
-
 const updateOrderToDelivered = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id);
 
@@ -163,103 +147,141 @@ const getOrders = asyncHandler(async (req, res) => {
 });
 
 const MakePayment = asyncHandler(async (req, res) => {
-  const order = await Order.findById(req.params.id);
+  const orderId = req.params.id;
+  const order = await Order.findById(orderId);
   if (!order) {
     throw new ApiError(404, 'Order not Found.');
   }
-  const id = req.params.id;
+  for (let item of order.orderItems) {
+    const medicine = await Medicine.findById(item.med);
+    if (!medicine) {
+      throw new ApiError(404, `Medicine not found ${item.med}`);
+    }
+    if (medicine.countInStock < item.qty) {
+      throw new ApiError(400, `${medicine.name} is Out of Stock`);
+    }
+  }
 
   const formData = {
-    cus_name: order.shippingAddress.name,
-    cus_email: 'test@gmail.com',
-    cus_phone: order.shippingAddress.contact,
-    amount: order.totalPrice,
-    tran_id: uuidv4(),
-    signature_key: 'dbb74894e82415a2f7ff0ec3a97e4183',
-    store_id: 'test',
+    amount: order.totalPrice * 100,
     currency: 'INR',
-    desc: order.orderItems[0].name,
-    cus_add1: order.shippingAddress.address,
-    cus_add2: 'Delhi',
-    cus_city: 'Delhi',
-    cus_country: 'India',
-    opt_a: id,
-    success_url: 'http://localhost:5000/api/orders/callback',
-    fail_url: 'http://localhost:5000/api/orders/callback',
-    cancel_url: 'http://localhost:5000/api/orders/callback',
-    type: 'json',
+    receipt: order._id.toString(),
+
+    notes: {
+      name: order.shippingAddress.name,
+      phone: order.shippingAddress.contactInfo.phoneNumber,
+      address: order.shippingAddress.address,
+      city: order.shippingAddress.city,
+    },
+    payment_capture: 1,
   };
 
-  const { data } = await axios.post(
-    'https://sandbox.stripe.com/jsonpost.php',
-    formData
-  );
-
-  if (data.result !== 'true') {
-    let errorMessage = '';
-    for (let key in data) {
-      errorMessage += data[key] + '. ';
-    }
-    return res.render('error', {
-      title: 'Error',
-      errorMessage,
-    });
+  const razorpayOrder = await razorpay.orders.create(formData);
+  if (!razorpayOrder) {
+    throw new ApiError(500, 'Failed to create Razorpay order.');
   }
-  res.json(data);
+  order.paymentResult.paymentOrderId = razorpayOrder.id;
+  order.paymentResult.status = 'created';
+  await order.save();
+
+  res.json(
+    new ApiResponse(200, razorpayOrder, 'Razorpay Order Created Successfully.')
+  );
 });
 
-const callback = asyncHandler(async (req, res) => {
-  const {
-    pay_status,
-    cus_name,
-    cus_phone,
-    cus_email,
-    currency,
-    pay_time,
-    amount,
-    opt_a,
-  } = req.body;
+const razorpayWebhook = asyncHandler(async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const receivedSignature = req.headers['x-razorpay-signature'];
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(req.body)
+      .digest('hex');
+    if (receivedSignature !== expectedSignature) {
+      return res.json(
+        new ApiResponse(
+          200,
+          null,
+          'Webhook received but Signature verification failed.'
+        )
+      );
+    }
+    const event = req.body.event;
+    const payment = req.body.payload.payment.entity;
+    const razorpayOrderId = payment.order_id;
+    const order = await Order.findOne({
+      'paymentResult.paymentOrderId': razorpayOrderId,
+    }).session(session);
+    if (!order) {
+      throw new ApiError(404, 'Order not found.');
+    }
 
-  const order = await Order.findById(opt_a);
+    if (event === 'payment.failed') {
+      order.isPaid = false;
+      order.paymentResult.status = 'failed';
+      await order.save({ session });
 
-  if (order && pay_status === 'Successful') {
-    // order.isPaid = true;
-    // order.paidAt = Date.now();
+      console.log('Payment failed for order:', razorpayOrderId);
+      return res.status(200).json({ message: 'Payment failed handled.' });
+    }
 
-    // await order.save();
+    if (event !== 'payment.captured') {
+      return res.json(new ApiResponse(200, null, 'Event ignored.'));
+    }
+    const paymentId = payment.id;
+
+    if (order.paymentResult.isPaid) {
+      await session.abortTransaction();
+      console.log('Webhook already processed for order:', razorpayOrderId);
+      return res.json(new ApiResponse(200, null, 'Already processed.'));
+    }
+
     for (const item of order.orderItems) {
-      const medicine = await Medicine.findById(item.med);
+      const medicine = await Medicine.findById(item.med).session(session);
       if (!medicine) {
         throw new ApiError(404, 'Medicine not Found.');
       }
+      if (medicine.countInStock < item.qty) {
+        throw new ApiError(400, `Insufficient stock for: ${medicine.name}.`);
+      }
       medicine.countInStock -= item.qty;
-      await medicine.save();
+      await medicine.save({ session });
     }
+    order.paymentResult.status = 'paid';
+    order.paymentResult.isPaid = true;
+    order.paymentResult.paidAt = Date.now();
+    order.paymentResult.paymentId = paymentId;
+    await order.save({ session });
+    await session.commitTransaction();
 
-    updateOrderToPaid(order, {
-      id: req.body.id,
-      status: req.body.status,
-      update_time: req.body.update_time,
-      email_address: req.body.payer.email_address,
-    });
-  } else {
-    res.status(404);
-    throw new Error('Order not found');
+    console.log('Payment captured for order:', razorpayOrderId);
+    res.json(
+      new ApiResponse(200, { status: 'Paid' }, 'Order paid Successfully.')
+    );
+  } catch (error) {
+    //Rollback all changes if any error
+    console.error('Razorpay Webhook Processing Error:', error);
+    if (session) await session.abortTransaction();
+    res.json(
+      new ApiResponse(
+        200,
+        null,
+        'Webhook received, but an internal error occurred. The issue has been logged for review.'
+      )
+    );
+  } finally {
+    if (session) await session.endSession();
   }
-
-  let baseUrl = 'http://localhost:3000';
-  let url = '/success';
-  let queryParams = `?cus_name=${cus_name}&pay_time=${pay_time}&amount=${amount}&pay_status=${pay_status}&cus_phone=${cus_phone}&currency=${currency}&opt_a=${opt_a}`;
-  res.redirect(301, `${baseUrl}${url}/${queryParams}`);
 });
 
 export {
   addOrderItems,
   getMyOrders,
   MakePayment,
-  callback,
+  razorpayWebhook,
   getOrderById,
-  updateOrderToPaid,
   updateOrderToDelivered,
   getOrders,
   cancelOrder,
